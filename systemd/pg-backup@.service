@@ -1,0 +1,11 @@
+[Unit]
+Description=PostgreSQL backup to S3 (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+EnvironmentFile=/etc/pg-backup/%i.env
+ExecStart=/usr/local/bin/pg-backup-s3.sh
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,11 @@
+groups:
+  - name: pg-backup
+    rules:
+      - alert: PgBackupFailed
+        expr: pg_backup_success == 0
+        labels: { severity: critical }
+        annotations: { summary: "backup of {{ $labels.db }} failed" }
+      - alert: PgBackupTooOld
+        expr: time() - pg_backup_last_run_timestamp_seconds > 26 * 3600
+        labels: { severity: warning }
+        annotations: { summary: "no backup of {{ $labels.db }} for more than 26h" }
