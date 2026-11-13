@@ -6,4 +6,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x *.sh
+      - run: shellcheck -x *.sh tests/*.sh
+
+  e2e:
+    # Real backup and restore against PostgreSQL and MinIO, not just a lint.
+    needs: shellcheck
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 2s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 \
+            minio/minio:latest server /data
+          for _ in $(seq 1 30); do curl -sf http://localhost:9000/minio/health/live && break; sleep 1; done
+      - name: client tools
+        run: |
+          pg_dump --version   # the runner image ships PostgreSQL 16 client tools
+          aws --version
+          aws configure set default.s3.addressing_style path
+      - run: tests/e2e.sh
