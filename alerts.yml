@@ -9,3 +9,11 @@ groups:
         expr: time() - pg_backup_last_run_timestamp_seconds > 26 * 3600
         labels: { severity: warning }
         annotations: { summary: "no backup of {{ $labels.db }} for more than 26h" }
+      - alert: PgRestoreCheckFailed
+        expr: pg_restore_check_success == 0
+        labels: { severity: critical }
+        annotations: { summary: "latest backup of {{ $labels.db }} could not be restored and checked" }
+      - alert: PgRestoreCheckTooOld
+        expr: time() - pg_restore_check_last_run_timestamp_seconds > 8 * 24 * 3600
+        labels: { severity: warning }
+        annotations: { summary: "no restore check of {{ $labels.db }} for more than 8 days" }

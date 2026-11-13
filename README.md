@@ -35,4 +35,18 @@ CI не ограничивается линтером: на каждый ком�
 
 ## Проверка восстановления
 
-Раз в месяц: `./restore.sh postgres/app/app-<ts>.sql.gz app_restore_check`, затем сравнить количество строк в ключевых таблицах. Непроверенный бэкап считаем отсутствующим.
+Непроверенный бэкап считаем отсутствующим, поэтому проверка автоматическая. `restore-check.sh` раз в неделю (systemd timer `pg-restore-check@.timer`):
+
+1. берёт последний бэкап из бакета (зашифрованный тоже, с `AGE_IDENTITY`);
+2. восстанавливает его во временную базу;
+3. проверяет, что таблицы есть, при желании ещё что в `CHECK_TABLE` не меньше `CHECK_MIN_ROWS` строк и что `CHECK_SQL` возвращает true;
+4. удаляет временную базу, даже если что-то упало;
+5. пишет метрики: успех, сколько длилось восстановление (это и есть реальный RTO) и сколько часов было бэкапу.
+
+Алерты `PgRestoreCheckFailed` и `PgRestoreCheckTooOld` в `alerts.yml`.
+
+```bash
+sudo install -m 0755 restore.sh restore-check.sh /usr/local/bin/
+sudo cp systemd/pg-restore-check@.* /etc/systemd/system/
+sudo systemctl enable --now pg-restore-check@app.timer
+```

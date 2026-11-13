@@ -59,6 +59,18 @@ if ./restore.sh "$enc_key" app_no_key 2>/dev/null; then fail "restore without AG
 AGE_IDENTITY="$METRICS_DIR/age.key" ./restore.sh "$enc_key" app_decrypted
 [[ $(psql -d app_decrypted -tAc "SELECT sum(total) FROM orders") == "$want_sum" ]] || fail "decrypted data differs"
 
+step "restore check of the latest backup"
+AGE_IDENTITY="$METRICS_DIR/age.key" CHECK_TABLE=orders CHECK_MIN_ROWS=5000 \
+  CHECK_SQL="SELECT sum(total) = $want_sum FROM orders" ./restore-check.sh
+cat "$METRICS_DIR/pg_restore_check_app.prom"
+grep -q 'pg_restore_check_success{db="app"} 1' "$METRICS_DIR/pg_restore_check_app.prom" || fail "restore check metric"
+[[ -z $(psql -d postgres -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'app_restore_check_%'") ]] || fail "scratch database left behind"
+
+step "restore check fails loudly when the data is wrong"
+if AGE_IDENTITY="$METRICS_DIR/age.key" CHECK_TABLE=orders CHECK_MIN_ROWS=999999 ./restore-check.sh 2>/dev/null; then fail "check passed with too few rows"; fi
+grep -q 'pg_restore_check_success{db="app"} 0' "$METRICS_DIR/pg_restore_check_app.prom" || fail "failed check not reported"
+[[ -z $(psql -d postgres -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'app_restore_check_%'") ]] || fail "scratch database left behind after failure"
+
 step "a failed backup is reported as failed"
 if PGDATABASE=does_not_exist ./pg-backup-s3.sh 2>/dev/null; then fail "backup of a missing db succeeded"; fi
 grep -q 'pg_backup_success{db="does_not_exist"} 0' "$METRICS_DIR/pg_backup_does_not_exist.prom" || fail "failure metric"

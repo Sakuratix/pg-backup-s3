@@ -1,0 +1,11 @@
+[Unit]
+Description=Restore the latest PostgreSQL backup into a scratch database and check it (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+EnvironmentFile=/etc/pg-backup/%i.env
+ExecStart=/usr/local/bin/restore-check.sh
+Nice=15
+IOSchedulingClass=idle
