@@ -14,7 +14,8 @@ step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 step "seed a database"
-psql -d postgres -qc "DROP DATABASE IF EXISTS app" -c "DROP DATABASE IF EXISTS app_restored" -c "CREATE DATABASE app"
+for db in app app_restored app_no_key app_decrypted; do psql -d postgres -qc "DROP DATABASE IF EXISTS $db"; done
+psql -d postgres -qc "CREATE DATABASE app"
 psql -q <<'SQL'
 CREATE TABLE orders (id serial PRIMARY KEY, total numeric(10,2) NOT NULL, note text);
 INSERT INTO orders (total, note) SELECT round((random() * 100)::numeric, 2), 'order ' || g FROM generate_series(1, 5000) g;
@@ -45,6 +46,18 @@ got_count=$(psql -d app_restored -tAc "SELECT count(*) FROM orders")
 got_sum=$(psql -d app_restored -tAc "SELECT sum(total) FROM orders")
 [[ $got_count == 5000 ]] || fail "restored $got_count rows, want 5000"
 [[ $got_sum == "$want_sum" ]] || fail "restored sum $got_sum, want $want_sum"
+
+step "encrypted backup: unreadable without the key, restorable with it"
+age-keygen -o "$METRICS_DIR/age.key" 2>/dev/null
+recipient=$(age-keygen -y "$METRICS_DIR/age.key")
+AGE_RECIPIENT="$recipient" ./pg-backup-s3.sh
+enc_key="$S3_PREFIX/app/$(s3 ls "s3://$S3_BUCKET/$S3_PREFIX/app/" | awk '{print $4}' | grep '\.age$' | tail -1)"
+[[ $enc_key == *.sql.gz.age ]] || fail "no encrypted backup uploaded"
+grep -q 'pg_backup_encrypted{db="app"} 1' "$METRICS_DIR/pg_backup_app.prom" || fail "encrypted metric"
+if s3 cp "s3://$S3_BUCKET/$enc_key" - | gunzip -t 2>/dev/null; then fail "encrypted object is readable as plain gzip"; fi
+if ./restore.sh "$enc_key" app_no_key 2>/dev/null; then fail "restore without AGE_IDENTITY succeeded"; fi
+AGE_IDENTITY="$METRICS_DIR/age.key" ./restore.sh "$enc_key" app_decrypted
+[[ $(psql -d app_decrypted -tAc "SELECT sum(total) FROM orders") == "$want_sum" ]] || fail "decrypted data differs"
 
 step "a failed backup is reported as failed"
 if PGDATABASE=does_not_exist ./pg-backup-s3.sh 2>/dev/null; then fail "backup of a missing db succeeded"; fi

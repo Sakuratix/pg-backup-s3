@@ -28,6 +28,7 @@ jobs:
           for _ in $(seq 1 30); do curl -sf http://localhost:9000/ >/dev/null && break; sleep 1; done
       - name: client tools
         run: |
+          sudo apt-get install -y -qq age >/dev/null
           pg_dump --version   # must not be newer than the server it restores into
           aws --version
           aws configure set default.s3.addressing_style path
