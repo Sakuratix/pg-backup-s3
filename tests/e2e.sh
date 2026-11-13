@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# End-to-end test: real PostgreSQL + MinIO (see .github/workflows/ci.yml).
+# End-to-end test: real PostgreSQL + an S3-compatible server (see .github/workflows/ci.yml).
 # Backs up a database, checks pruning and metrics, restores it and compares data.
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 export PGHOST=localhost PGUSER=postgres PGPASSWORD=postgres PGDATABASE=app
-export AWS_ACCESS_KEY_ID=minio AWS_SECRET_ACCESS_KEY=minio12345 AWS_DEFAULT_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
 export S3_ENDPOINT=http://localhost:9000 S3_BUCKET=backups S3_PREFIX=postgres
 METRICS_DIR="$(mktemp -d)"; export METRICS_DIR
 
