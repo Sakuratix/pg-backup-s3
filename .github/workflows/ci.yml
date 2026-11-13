@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env: { POSTGRES_PASSWORD: postgres }
         ports: ["5432:5432"]
         options: >-
@@ -28,7 +28,7 @@ jobs:
           for _ in $(seq 1 30); do curl -sf http://localhost:9000/ >/dev/null && break; sleep 1; done
       - name: client tools
         run: |
-          pg_dump --version   # the runner image ships PostgreSQL 16 client tools
+          pg_dump --version   # must not be newer than the server it restores into
           aws --version
           aws configure set default.s3.addressing_style path
       - run: tests/e2e.sh
