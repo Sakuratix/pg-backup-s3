@@ -44,6 +44,9 @@ write_metrics() {  # $1 = success (0/1)
       echo "# HELP pg_backup_size_bytes Size of the last successful backup."
       echo "# TYPE pg_backup_size_bytes gauge"
       echo "pg_backup_size_bytes{db=\"$PGDATABASE\"} $(stat -c %s "$tmp/upload")"
+      echo "# HELP pg_backup_objects Backups of this database in the bucket after pruning."
+      echo "# TYPE pg_backup_objects gauge"
+      echo "pg_backup_objects{db=\"$PGDATABASE\"} ${objects:-0}"
       echo "# HELP pg_backup_encrypted Last backup was encrypted with age (1) or not (0)."
       echo "# TYPE pg_backup_encrypted gauge"
       echo "pg_backup_encrypted{db=\"$PGDATABASE\"} $([[ -n "$AGE_RECIPIENT" ]] && echo 1 || echo 0)"
@@ -84,5 +87,8 @@ s3 ls "s3://$S3_BUCKET/$S3_PREFIX/$PGDATABASE/" | awk '{print $4}' \
   fi
 done
 
+objects="$(s3 ls "s3://$S3_BUCKET/$S3_PREFIX/$PGDATABASE/" | awk '{print $4}' \
+  | { grep -cE "^${PGDATABASE}-[0-9]{8}T[0-9]{6}Z\." || true; })"
+log "$objects backups of $PGDATABASE in the bucket"
 write_metrics 1
 log "done in $(( $(date +%s) - start ))s"

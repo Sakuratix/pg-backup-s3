@@ -47,6 +47,8 @@ step "metrics"
 cat "$METRICS_DIR/pg_backup_app.prom"
 grep -q 'pg_backup_success{db="app"} 1' "$METRICS_DIR/pg_backup_app.prom" || fail "success metric"
 grep -Eq 'pg_backup_size_bytes\{db="app"\} [1-9][0-9]+' "$METRICS_DIR/pg_backup_app.prom" || fail "size metric"
+want_objects=$(s3 ls "s3://$S3_BUCKET/$S3_PREFIX/app/" | grep -c '\.sql\.gz')
+grep -q "pg_backup_objects{db=\"app\"} $want_objects" "$METRICS_DIR/pg_backup_app.prom" || fail "objects metric, want $want_objects"
 
 step "restore into a new database and compare"
 ./restore.sh "$key" app_restored
