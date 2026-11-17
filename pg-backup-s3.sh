@@ -65,8 +65,10 @@ else
   mv "$tmp/dump.sql.gz" "$tmp/upload"
 fi
 
-log "uploading s3://$S3_BUCKET/$key"
-s3 cp --only-show-errors "$tmp/upload" "s3://$S3_BUCKET/$key"
+sha256="$(sha256sum "$tmp/upload" | cut -d' ' -f1)"
+log "uploading s3://$S3_BUCKET/$key (sha256 $sha256)"
+# the checksum travels with the object as metadata; restore.sh refuses a file that doesn't match
+s3 cp --only-show-errors --metadata "sha256=$sha256" "$tmp/upload" "s3://$S3_BUCKET/$key"
 
 log "pruning backups older than $RETENTION_DAYS days, keeping at least the newest $MIN_KEEP"
 cutoff="$(date -u -d "-${RETENTION_DAYS} days" +%Y%m%d)"

@@ -14,7 +14,7 @@ step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 step "seed a database"
-for db in app app_restored app_no_key app_decrypted; do psql -d postgres -qc "DROP DATABASE IF EXISTS $db"; done
+for db in app app_restored app_no_key app_decrypted app_corrupt; do psql -d postgres -qc "DROP DATABASE IF EXISTS $db"; done
 psql -d postgres -qc "CREATE DATABASE app"
 psql -q <<'SQL'
 CREATE TABLE orders (id serial PRIMARY KEY, total numeric(10,2) NOT NULL, note text);
@@ -54,6 +54,16 @@ got_count=$(psql -d app_restored -tAc "SELECT count(*) FROM orders")
 got_sum=$(psql -d app_restored -tAc "SELECT sum(total) FROM orders")
 [[ $got_count == 5000 ]] || fail "restored $got_count rows, want 5000"
 [[ $got_sum == "$want_sum" ]] || fail "restored sum $got_sum, want $want_sum"
+
+step "a corrupted object is refused before touching the database"
+s3 cp --only-show-errors "s3://$S3_BUCKET/$key" "$METRICS_DIR/good"
+want_meta=$(aws --endpoint-url "$S3_ENDPOINT" s3api head-object --bucket "$S3_BUCKET" --key "$key" --query Metadata.sha256 --output text)
+[[ $want_meta == $(sha256sum "$METRICS_DIR/good" | cut -d' ' -f1) ]] || fail "sha256 metadata missing or wrong: $want_meta"
+head -c 1000 "$METRICS_DIR/good" > "$METRICS_DIR/truncated"
+bad_key="$S3_PREFIX/corrupt/app-20990101T000000Z.sql.gz"
+s3 cp --only-show-errors --metadata "sha256=$want_meta" "$METRICS_DIR/truncated" "s3://$S3_BUCKET/$bad_key"
+if ./restore.sh "$bad_key" app_corrupt 2>/dev/null; then fail "restored a truncated backup"; fi
+[[ -z $(psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'app_corrupt'") ]] || fail "database created before verification"
 
 step "encrypted backup: unreadable without the key, restorable with it"
 age-keygen -o "$METRICS_DIR/age.key" 2>/dev/null
