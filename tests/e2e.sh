@@ -27,13 +27,21 @@ s3 mb "s3://$S3_BUCKET" >/dev/null 2>&1 || true
 echo stale | gzip | s3 cp - "s3://$S3_BUCKET/$S3_PREFIX/app/app-20200101T000000Z.sql.gz"
 
 step "backup"
-./pg-backup-s3.sh
+MIN_KEEP=1 ./pg-backup-s3.sh
 
 keys=$(s3 ls "s3://$S3_BUCKET/$S3_PREFIX/app/" | awk '{print $4}')
 echo "$keys"
 grep -q 20200101 <<<"$keys" && fail "expired backup was not pruned"
 key="$S3_PREFIX/app/$(tail -1 <<<"$keys")"
 [[ $key == *.sql.gz ]] || fail "unexpected key $key"
+
+step "MIN_KEEP protects old backups when there are few of them"
+echo stale | gzip | s3 cp - "s3://$S3_BUCKET/$S3_PREFIX/app/app-20200102T000000Z.sql.gz"
+MIN_KEEP=10 ./pg-backup-s3.sh
+s3 ls "s3://$S3_BUCKET/$S3_PREFIX/app/" | grep -q 20200102 || fail "pruned a backup inside MIN_KEEP"
+MIN_KEEP=2 ./pg-backup-s3.sh
+s3 ls "s3://$S3_BUCKET/$S3_PREFIX/app/" | grep -q 20200102 && fail "expired backup outside MIN_KEEP was kept"
+key="$S3_PREFIX/app/$(s3 ls "s3://$S3_BUCKET/$S3_PREFIX/app/" | awk '{print $4}' | tail -1)"
 
 step "metrics"
 cat "$METRICS_DIR/pg_backup_app.prom"

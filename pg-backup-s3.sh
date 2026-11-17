@@ -4,7 +4,8 @@
 #
 # Required env: PGHOST PGUSER PGDATABASE (PGPASSWORD or ~/.pgpass), S3_BUCKET
 # Optional env: S3_PREFIX (default: postgres), S3_ENDPOINT (default: https://storage.yandexcloud.net),
-#               RETENTION_DAYS (default: 14), METRICS_DIR (default: /var/lib/node_exporter/textfile)
+#               RETENTION_DAYS (default: 14), MIN_KEEP (default: 3, never prune the newest N),
+#               METRICS_DIR (default: /var/lib/node_exporter/textfile)
 #               AGE_RECIPIENT  encrypt with age (https://age-encryption.org) to this public key;
 #                              the private key is never on the database server
 set -Eeuo pipefail
@@ -12,6 +13,7 @@ set -Eeuo pipefail
 S3_PREFIX="${S3_PREFIX:-postgres}"
 S3_ENDPOINT="${S3_ENDPOINT:-https://storage.yandexcloud.net}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
+MIN_KEEP="${MIN_KEEP:-3}"
 METRICS_DIR="${METRICS_DIR:-/var/lib/node_exporter/textfile}"
 : "${PGDATABASE:?PGDATABASE is required}" "${S3_BUCKET:?S3_BUCKET is required}"
 
@@ -66,11 +68,15 @@ fi
 log "uploading s3://$S3_BUCKET/$key"
 s3 cp --only-show-errors "$tmp/upload" "s3://$S3_BUCKET/$key"
 
-log "pruning backups older than $RETENTION_DAYS days"
+log "pruning backups older than $RETENTION_DAYS days, keeping at least the newest $MIN_KEEP"
 cutoff="$(date -u -d "-${RETENTION_DAYS} days" +%Y%m%d)"
-s3 ls "s3://$S3_BUCKET/$S3_PREFIX/$PGDATABASE/" | awk '{print $4}' | while read -r name; do
+# names carry the UTC timestamp, so a plain sort is chronological; the newest
+# MIN_KEEP are never candidates, so a clock jump or a long outage of the
+# backups themselves can't prune the bucket down to nothing
+s3 ls "s3://$S3_BUCKET/$S3_PREFIX/$PGDATABASE/" | awk '{print $4}' \
+  | { grep -E "^${PGDATABASE}-[0-9]{8}T[0-9]{6}Z\." || true; } | sort | head -n "-$MIN_KEEP" | while read -r name; do
   d="$(sed -E 's/.*-([0-9]{8})T.*/\1/' <<<"$name")"
-  if [[ "$d" =~ ^[0-9]{8}$ && "$d" < "$cutoff" ]]; then
+  if [[ "$d" < "$cutoff" ]]; then
     log "delete $name"
     s3 rm --only-show-errors "s3://$S3_BUCKET/$S3_PREFIX/$PGDATABASE/$name"
   fi
